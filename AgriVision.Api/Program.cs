@@ -33,20 +33,20 @@ app.UseStaticFiles();
 
 // Log whether an API key is visible at startup (without revealing it)
 {
-	bool hasEnv = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
-	bool hasCfgRoot = !string.IsNullOrWhiteSpace(builder.Configuration["OPENAI_API_KEY"]);
-	bool hasCfgSection = !string.IsNullOrWhiteSpace(builder.Configuration["OpenAI:ApiKey"]);
+	bool hasEnv = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
+	bool hasCfgRoot = !string.IsNullOrWhiteSpace(builder.Configuration["GEMINI_API_KEY"]);
+	bool hasCfgSection = !string.IsNullOrWhiteSpace(builder.Configuration["Gemini:ApiKey"]);
 	bool configured = hasEnv || hasCfgRoot || hasCfgSection;
-	app.Logger.LogInformation("OpenAI API key configured at startup: {Configured}", configured);
+	app.Logger.LogInformation("Gemini API key configured at startup: {Configured}", configured);
 }
 
 // Health endpoint to check key visibility at runtime
 app.MapGet("/healthz", (IConfiguration cfg) =>
 {
-	bool hasEnv = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPENAI_API_KEY"));
-	bool hasCfgRoot = !string.IsNullOrWhiteSpace(cfg["OPENAI_API_KEY"]);
-	bool hasCfgSection = !string.IsNullOrWhiteSpace(cfg["OpenAI:ApiKey"]);
-	return Results.Ok(new { openaiKeyConfigured = hasEnv || hasCfgRoot || hasCfgSection, hasEnv, hasCfgRoot, hasCfgSection });
+	bool hasEnv = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GEMINI_API_KEY"));
+	bool hasCfgRoot = !string.IsNullOrWhiteSpace(cfg["GEMINI_API_KEY"]);
+	bool hasCfgSection = !string.IsNullOrWhiteSpace(cfg["Gemini:ApiKey"]);
+	return Results.Ok(new { geminiKeyConfigured = hasEnv || hasCfgRoot || hasCfgSection, hasEnv, hasCfgRoot, hasCfgSection });
 });
 
 app.MapPost("/api/analyze", async (HttpRequest request) =>
@@ -77,12 +77,12 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 	bool mockMode = string.Equals(Environment.GetEnvironmentVariable("AGRI_MOCK_MODE"), "true", StringComparison.OrdinalIgnoreCase)
 		|| string.Equals(builder.Configuration["AGRI_MOCK_MODE"], "true", StringComparison.OrdinalIgnoreCase);
 
-	var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-		?? builder.Configuration["OPENAI_API_KEY"]
-		?? builder.Configuration["OpenAI:ApiKey"];
+	var apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+		?? builder.Configuration["GEMINI_API_KEY"]
+		?? builder.Configuration["Gemini:ApiKey"];
 	if (string.IsNullOrWhiteSpace(apiKey) && !mockMode)
 	{
-		return Results.Problem("OPENAI_API_KEY is not configured.", statusCode: 500);
+		return Results.Problem("GEMINI_API_KEY is not configured.", statusCode: 500);
 	}
 
 	// If mock mode is enabled, short-circuit with a friendly templated answer
@@ -95,29 +95,28 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 	try
 	{
 		var http = new HttpClient();
-		http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 		http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
 		string base64 = Convert.ToBase64String(imageBytes);
 		var payload = new
 		{
-			model = "gpt-4o-mini",
-			messages = new object[]
+			contents = new object[]
 			{
 				new
 				{
 					role = "user",
-					content = new object[]
+					parts = new object[]
 					{
-						new { type = "text", text = question },
-						new { type = "image_url", image_url = new { url = $"data:{mediaType};base64,{base64}" } }
+						new { text = question },
+						new { inlineData = new { mimeType = mediaType, data = base64 } }
 					}
 				}
 			}
 		};
 
 		var json = JsonSerializer.Serialize(payload);
-		var response = await http.PostAsync("https://api.openai.com/v1/chat/completions", new StringContent(json, Encoding.UTF8, "application/json"));
+		var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={Uri.EscapeDataString(apiKey)}";
+		var response = await http.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
 
 		if ((int)response.StatusCode == 429 && mockMode)
 		{
@@ -129,7 +128,7 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 		var responseText = await response.Content.ReadAsStringAsync();
 
 		using var doc = JsonDocument.Parse(responseText);
-		string answer = ExtractAnswerFromChatCompletions(doc);
+		string answer = ExtractAnswerFromGemini(doc);
 		return Results.Ok(new { answer });
 	}
 	catch (Exception ex)
@@ -146,16 +145,20 @@ app.MapFallbackToFile("/index.html");
 
 app.Run();
 
-static string ExtractAnswerFromChatCompletions(JsonDocument doc)
+static string ExtractAnswerFromGemini(JsonDocument doc)
 {
 	try
 	{
 		var root = doc.RootElement;
-		var choices = root.GetProperty("choices");
-		if (choices.GetArrayLength() > 0)
+		var candidates = root.GetProperty("candidates");
+		if (candidates.GetArrayLength() > 0)
 		{
-			var content = choices[0].GetProperty("message").GetProperty("content").GetString();
-			return content ?? string.Empty;
+			var parts = candidates[0].GetProperty("content").GetProperty("parts");
+			if (parts.GetArrayLength() > 0)
+			{
+				var text = parts[0].GetProperty("text").GetString();
+				return text ?? string.Empty;
+			}
 		}
 	}
 	catch { }
