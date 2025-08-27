@@ -40,7 +40,7 @@ EXPOSE 8080
 
 # Configure Kestrel to listen on 8080 in containers
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
-# You can set OPENAI_API_KEY at runtime; optional mock mode:
+# You can set GEMINI_API_KEY at runtime; optional mock mode:
 # ENV AGRI_MOCK_MODE=false
 
 ENTRYPOINT ["dotnet", "AgriVision.Api.dll"]
