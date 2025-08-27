@@ -116,8 +116,35 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 
 		var json = JsonSerializer.Serialize(payload);
 		var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={Uri.EscapeDataString(apiKey)}";
-		var response = await http.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
 
+		HttpResponseMessage? response = null;
+		string responseText = string.Empty;
+		const int maxAttempts = 3;
+		for (int attempt = 1; attempt <= maxAttempts; attempt++)
+		{
+			response = await http.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
+			if (response.IsSuccessStatusCode)
+			{
+				break;
+			}
+			if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+				response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+			{
+				if (attempt < maxAttempts)
+				{
+					await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1))); // 1s, 2s
+					continue;
+				}
+			}
+			break;
+		}
+
+		if (response is null)
+		{
+			return Results.Problem(title: "Upstream service error", detail: "No response from AI service.", statusCode: 502);
+		}
+
+		responseText = await response.Content.ReadAsStringAsync();
 		if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests && mockMode)
 		{
 			string mockAnswer = BuildMockAnswer(question, file.FileName);
@@ -131,8 +158,7 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 				? "Rate limited. Please slow down or check your quota."
 				: status == 503
 					? "The AI service is unavailable right now. Please try again shortly."
-					: "Request to AI service failed.";
-			// If mock mode is enabled for transient errors, provide mock answer
+					: $"Request to AI service failed. Body: {responseText}";
 			if (mockMode && (status == 429 || status == 503 || status >= 500))
 			{
 				string mockAnswer = BuildMockAnswer(question, file.FileName);
@@ -140,7 +166,6 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 			}
 			return Results.Problem(title: status == 429 ? "Rate limited" : "Upstream service error", detail: detail, statusCode: status == 503 ? 502 : status);
 		}
-		var responseText = await response.Content.ReadAsStringAsync();
 
 		using var doc = JsonDocument.Parse(responseText);
 		string answer = ExtractAnswerFromGemini(doc);
