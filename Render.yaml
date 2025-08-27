@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: AgriVision-Fullstack
+    env: docker
+    plan: starter
+    dockerfilePath: apps/Dockerfile
+    dockerContext: .
+    branch: main
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+    autoDeploy: true
+    pullRequestPreviewsEnabled: trueservices:
+  - type: web
+    name: AgriVision-Fullstack
+    env: docker
+    plan: starter
+    dockerfilePath: apps/Dockerfile
+    dockerContext: .
+    branch: main
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+    autoDeploy: true
+    pullRequestPreviewsEnabled: true
