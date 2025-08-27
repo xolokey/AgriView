@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
-using OpenAI.Chat;
-using System.ClientModel;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -68,7 +69,9 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 	}
 
 	await using var stream = file.OpenReadStream();
-	var imageBytes = BinaryData.FromStream(stream);
+	using var ms = new MemoryStream();
+	await stream.CopyToAsync(ms);
+	var imageBytes = ms.ToArray();
 	var mediaType = file.ContentType ?? "image/png";
 
 	bool mockMode = string.Equals(Environment.GetEnvironmentVariable("AGRI_MOCK_MODE"), "true", StringComparison.OrdinalIgnoreCase)
@@ -91,35 +94,43 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 
 	try
 	{
-		var client = new ChatClient("gpt-4o", apiKey);
-		var messages = new List<ChatMessage>
+		var http = new HttpClient();
+		http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+		http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+		string base64 = Convert.ToBase64String(imageBytes);
+		var payload = new
 		{
-			new UserChatMessage(
-				ChatMessageContentPart.CreateTextPart(question),
-				ChatMessageContentPart.CreateImagePart(imageBytes, mediaType))
+			model = "gpt-4o-mini",
+			messages = new object[]
+			{
+				new
+				{
+					role = "user",
+					content = new object[]
+					{
+						new { type = "text", text = question },
+						new { type = "image_url", image_url = new { url = $"data:{mediaType};base64,{base64}" } }
+					}
+				}
+			}
 		};
 
-		ChatCompletion completion = await client.CompleteChatAsync(messages);
-		var answer = completion.Content.Count > 0 ? completion.Content[0].Text : string.Empty;
-		return Results.Ok(new { answer });
-	}
-	catch (ClientResultException ex)
-	{
-		// Gracefully handle OpenAI API errors such as insufficient_quota (HTTP 429)
-		var message = ex.Message ?? "Upstream AI service error.";
-		// Prefer 429 if indicated, otherwise 502 Bad Gateway
-		var statusCode = message.Contains("HTTP 429", StringComparison.OrdinalIgnoreCase) ? 429 : 502;
-		if (statusCode == 429 && mockMode)
+		var json = JsonSerializer.Serialize(payload);
+		var response = await http.PostAsync("https://api.openai.com/v1/chat/completions", new StringContent(json, Encoding.UTF8, "application/json"));
+
+		if ((int)response.StatusCode == 429 && mockMode)
 		{
 			string mockAnswer = BuildMockAnswer(question, file.FileName);
 			return Results.Ok(new { answer = mockAnswer, note = "mock" });
 		}
-		return Results.Problem(
-			detail: statusCode == 429
-				? "Quota exceeded. Please check your plan and billing details."
-				: "The AI service is unavailable right now. Please try again shortly.",
-			statusCode: statusCode,
-			title: statusCode == 429 ? "Insufficient quota" : "Upstream service error");
+
+		response.EnsureSuccessStatusCode();
+		var responseText = await response.Content.ReadAsStringAsync();
+
+		using var doc = JsonDocument.Parse(responseText);
+		string answer = ExtractAnswerFromChatCompletions(doc);
+		return Results.Ok(new { answer });
 	}
 	catch (Exception ex)
 	{
@@ -134,6 +145,22 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 app.MapFallbackToFile("/index.html");
 
 app.Run();
+
+static string ExtractAnswerFromChatCompletions(JsonDocument doc)
+{
+	try
+	{
+		var root = doc.RootElement;
+		var choices = root.GetProperty("choices");
+		if (choices.GetArrayLength() > 0)
+		{
+			var content = choices[0].GetProperty("message").GetProperty("content").GetString();
+			return content ?? string.Empty;
+		}
+	}
+	catch { }
+	return string.Empty;
+}
 
 static string BuildMockAnswer(string question, string fileName)
 {
