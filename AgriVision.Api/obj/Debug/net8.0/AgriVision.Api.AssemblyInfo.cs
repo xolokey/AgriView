@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AgriVision.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+75ec79084f6ca85e289df894a2da7f97a2461249")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cceaa5151d896280230cf9f3d40104881dcdf0d1")]
 [assembly: System.Reflection.AssemblyProductAttribute("AgriVision.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgriVision.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
