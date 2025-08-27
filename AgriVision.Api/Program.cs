@@ -118,25 +118,41 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 		var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={Uri.EscapeDataString(apiKey)}";
 		var response = await http.PostAsync(url, new StringContent(json, Encoding.UTF8, "application/json"));
 
-		if ((int)response.StatusCode == 429 && mockMode)
+		if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests && mockMode)
 		{
 			string mockAnswer = BuildMockAnswer(question, file.FileName);
 			return Results.Ok(new { answer = mockAnswer, note = "mock" });
 		}
 
-		response.EnsureSuccessStatusCode();
+		if (!response.IsSuccessStatusCode)
+		{
+			var status = (int)response.StatusCode;
+			var detail = status == 429
+				? "Rate limited. Please slow down or check your quota."
+				: status == 503
+					? "The AI service is unavailable right now. Please try again shortly."
+					: "Request to AI service failed.";
+			// If mock mode is enabled for transient errors, provide mock answer
+			if (mockMode && (status == 429 || status == 503 || status >= 500))
+			{
+				string mockAnswer = BuildMockAnswer(question, file.FileName);
+				return Results.Ok(new { answer = mockAnswer, note = "mock" });
+			}
+			return Results.Problem(title: status == 429 ? "Rate limited" : "Upstream service error", detail: detail, statusCode: status == 503 ? 502 : status);
+		}
 		var responseText = await response.Content.ReadAsStringAsync();
 
 		using var doc = JsonDocument.Parse(responseText);
 		string answer = ExtractAnswerFromGemini(doc);
 		return Results.Ok(new { answer });
 	}
+	catch (HttpRequestException ex)
+	{
+		return Results.Problem(title: "Network error", detail: ex.Message, statusCode: 502);
+	}
 	catch (Exception ex)
 	{
-		return Results.Problem(
-			detail: ex.Message,
-			statusCode: 500,
-			title: "Unexpected server error");
+		return Results.Problem(detail: ex.Message, statusCode: 500, title: "Unexpected server error");
 	}
 })
 .DisableAntiforgery();
