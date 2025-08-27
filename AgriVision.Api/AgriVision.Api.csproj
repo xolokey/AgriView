@@ -10,10 +10,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.15" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="OpenAI" Version="1.0.0-beta.17" />
+    <PackageReference Include="System.ClientModel" Version="1.0.0-beta.7.24511.1" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="../../src/OpenAI.csproj" />
-  </ItemGroup>
 
 </Project>
