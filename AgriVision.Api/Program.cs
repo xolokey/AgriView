@@ -115,7 +115,7 @@ app.MapPost("/api/analyze", async (HttpRequest request) =>
 		};
 
 		var json = JsonSerializer.Serialize(payload);
-		var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={Uri.EscapeDataString(apiKey)}";
+		var url = $"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key={Uri.EscapeDataString(apiKey)}";
 
 		HttpResponseMessage? response = null;
 		string responseText = string.Empty;
